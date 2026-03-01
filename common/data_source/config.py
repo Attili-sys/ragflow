@@ -66,6 +66,7 @@ class DocumentSource(str, Enum):
     SEAFILE = "seafile"
     MYSQL = "mysql"
     POSTGRESQL = "postgresql"
+    SANAD = "sanad"
 
 
 class FileOrigin(str, Enum):
