@@ -24,6 +24,7 @@ SOFTWARE.
 """
 
 from .blob_connector import BlobStorageConnector
+from .sanad_connector import SanadConnector
 from .slack_connector import SlackConnector
 from .gmail_connector import GmailConnector
 from .notion_connector import NotionConnector
@@ -42,6 +43,7 @@ from .zendesk_connector import ZendeskConnector
 from .seafile_connector import SeaFileConnector
 from .rdbms_connector import RDBMSConnector
 from .webdav_connector import WebDAVConnector
+from .sanad_connector import SanadConnector
 from .config import BlobType, DocumentSource
 from .models import Document, TextSection, ImageSection, BasicExpertInfo
 from .exceptions import (
@@ -83,4 +85,5 @@ __all__ = [
     "SeaFileConnector",
     "RDBMSConnector",
     "WebDAVConnector",
+    "SanadConnector",
 ]

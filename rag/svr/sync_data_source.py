@@ -55,6 +55,7 @@ from common.data_source import (
     ZendeskConnector,
     SeaFileConnector,
     RDBMSConnector,
+    SanadConnector,
 )
 from common.constants import FileSource, TaskStatus
 from common.data_source.config import INDEX_BATCH_SIZE
@@ -1292,6 +1293,45 @@ class PostgreSQL(SyncBase):
         logging.info(f"[PostgreSQL] Connect to {self.conf.get('host')}:{self.conf.get('database')} {begin_info}")
         return document_generator
 
+class Sanad(SyncBase):
+    SOURCE_NAME: str = FileSource.SANAD
+
+    async def _generate(self, task: dict):
+        self.connector = SanadConnector(
+            lang=self.conf.get("lang", "ar"),
+            stories_per_page=int(self.conf.get("stories_per_page", 20)),
+            batch_size=self.conf.get("batch_size", INDEX_BATCH_SIZE),
+        )
+
+        credentials = self.conf.get("credentials", {})
+        if "sanad_api_key" not in credentials:
+            raise ValueError("Missing sanad_api_key in credentials")
+
+        self.connector.load_credentials(
+            {"sanad_api_key": credentials["sanad_api_key"]}
+        )
+
+        if task.get("reindex") == "1" or not task.get("poll_range_start"):
+            document_generator = self.connector.load_from_state()
+            begin_info = "totally"
+        else:
+            poll_start = task.get("poll_range_start")
+            if poll_start is None:
+                document_generator = self.connector.load_from_state()
+                begin_info = "totally"
+            else:
+                document_generator = self.connector.poll_source(
+                    poll_start.timestamp(),
+                    datetime.now(timezone.utc).timestamp(),
+                )
+                begin_info = f"from {poll_start}"
+
+        logging.info(
+            "Connect to Sanad: lang(%s) %s",
+            self.conf.get("lang", "ar"),
+            begin_info,
+        )
+        return document_generator
 
 func_factory = {
     FileSource.S3: S3,
@@ -1321,6 +1361,7 @@ func_factory = {
     FileSource.SEAFILE: SeaFile,
     FileSource.MYSQL: MySQL,
     FileSource.POSTGRESQL: PostgreSQL,
+    FileSource.SANAD: Sanad,
 }
 
 
