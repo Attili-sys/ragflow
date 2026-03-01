@@ -4,11 +4,16 @@ Sanad (Al Jazeera) connector for RAGFlow.
 Fetches Arabic news stories from the Sanad API and converts them into
 RAGFlow Document objects for indexing and retrieval.
 
+Follows the RDBMS connector pattern: structured plain text with
+【field】: value delimiters, stored as .txt. Metadata fields are
+stored separately for filtering.
+
 API endpoint: GET https://capi.aljazeera.net/internal/sanad/v1/rest/stories-list
 Auth: Header `apikey`
 """
 
 import logging
+import re
 import time
 from collections.abc import Generator
 from datetime import datetime, timezone
@@ -32,6 +37,31 @@ _REQUEST_DELAY_SECONDS = 0.5
 _REQUEST_TIMEOUT_SECONDS = 30
 _MAX_PAGES_SAFETY = 5000  # safety cap to prevent infinite loops
 
+# Fields whose values go into the document blob (vectorized for RAG search).
+# Order matters — title first for semantic_identifier extraction.
+_CONTENT_FIELDS = ["title", "content"]
+
+# Fields stored as Document.metadata (for filtering, not vectorized).
+_METADATA_FIELDS = [
+    "category",
+    "country",
+    "country_iso2",
+    "source",
+    "media_type",
+    "copyright",
+    "news_types",
+    "sanad_id",
+    "published",
+    "ingested_at",
+]
+
+
+def _strip_html(html: str) -> str:
+    """Remove HTML tags and collapse whitespace, preserving Arabic text."""
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
 
 class SanadStory:
     """Represents a single Sanad news story."""
@@ -40,7 +70,7 @@ class SanadStory:
         self,
         story_id: int,
         title: str,
-        content: str,
+        content_html: str,
         published: datetime,
         category: str,
         country_name: str,
@@ -53,7 +83,8 @@ class SanadStory:
     ) -> None:
         self.story_id = story_id
         self.title = title
-        self.content = content
+        self.content_html = content_html
+        self.content_text = _strip_html(content_html) if content_html else ""
         self.published = published
         self.category = category
         self.country_name = country_name
@@ -115,9 +146,12 @@ class SanadAPI:
 
             data = resp.json()
 
-            # The API returns either a list of stories directly or
-            # wraps them in an object. Handle both cases.
-            stories_list = data if isinstance(data, list) else data.get("results", data.get("stories", []))
+            # The API may return a list directly or wrap in an object.
+            stories_list = (
+                data
+                if isinstance(data, list)
+                else data.get("results", data.get("stories", []))
+            )
 
             if not stories_list:
                 logger.info(f"No more stories on page {page}. Stopping.")
@@ -146,7 +180,10 @@ class SanadAPI:
 
             # If the page returned fewer stories than requested, we've hit the end
             if len(stories_list) < stories_per_page:
-                logger.info(f"Received {len(stories_list)} stories (less than {stories_per_page}). Last page.")
+                logger.info(
+                    f"Received {len(stories_list)} stories "
+                    f"(less than {stories_per_page}). Last page."
+                )
                 break
 
             page += 1
@@ -174,7 +211,7 @@ class SanadAPI:
         try:
             story_id = raw["id"]
             title = raw.get("title", "")
-            content = raw.get("content", "")
+            content_html = raw.get("content", "")
             published_str = raw.get("published", "")
             category = raw.get("category", "")
 
@@ -193,7 +230,6 @@ class SanadAPI:
             # Parse dates
             if published_str:
                 published = datetime.fromisoformat(published_str)
-                # Ensure timezone aware (convert to UTC)
                 if published.tzinfo is None:
                     published = published.replace(tzinfo=timezone.utc)
             else:
@@ -209,7 +245,7 @@ class SanadAPI:
             return SanadStory(
                 story_id=story_id,
                 title=title,
-                content=content,
+                content_html=content_html,
                 published=published,
                 category=category,
                 country_name=country_name,
@@ -221,7 +257,10 @@ class SanadAPI:
                 ingested_at=ingested_at,
             )
         except (KeyError, ValueError) as e:
-            logger.warning(f"Failed to parse Sanad story: {e}. Raw: {raw.get('id', 'unknown')}")
+            logger.warning(
+                f"Failed to parse Sanad story: {e}. "
+                f"Raw id: {raw.get('id', 'unknown')}"
+            )
             return None
 
 
@@ -230,7 +269,13 @@ class SanadConnector(LoadConnector, PollConnector):
     RAGFlow connector for the Al Jazeera Sanad API.
 
     Implements both LoadConnector (full reindex) and PollConnector (incremental sync).
-    Each story is converted to an HTML document for RAGFlow to parse.
+
+    Document format follows the RDBMS connector pattern:
+    - Content fields (title, body text) are stored as structured plain text
+      using 【field】: value delimiters → vectorized for RAG search.
+    - Metadata fields (category, country, source, etc.) are stored in
+      Document.metadata dict → available for filtering, not vectorized.
+    - Extension is .txt so RAGFlow uses TxtParser for chunking.
     """
 
     def __init__(
@@ -255,15 +300,18 @@ class SanadConnector(LoadConnector, PollConnector):
         api_key = credentials.get("sanad_api_key")
         if not api_key:
             from common.data_source.exceptions import ConnectorMissingCredentialError
+
             raise ConnectorMissingCredentialError("sanad")
 
         self.sanad_client = SanadAPI(api_key=api_key, lang=self.lang)
 
         if not self.sanad_client.validate_credentials():
             from common.data_source.exceptions import ConnectorValidationError
+
             raise ConnectorValidationError(
                 "Failed to validate Sanad API key. "
-                "Ensure the key is correct and you have network access to capi.aljazeera.net."
+                "Ensure the key is correct and you have network access "
+                "to capi.aljazeera.net."
             )
 
         logger.info("Sanad credentials loaded and validated")
@@ -289,7 +337,9 @@ class SanadConnector(LoadConnector, PollConnector):
     ) -> Generator[list[Document], None, None]:
         """Core fetch loop: get stories, convert to Documents, yield in batches."""
         if self.sanad_client is None:
-            raise RuntimeError("Sanad client not initialized. Call load_credentials() first.")
+            raise RuntimeError(
+                "Sanad client not initialized. Call load_credentials() first."
+            )
 
         docs_batch: list[Document] = []
 
@@ -319,76 +369,72 @@ class SanadConnector(LoadConnector, PollConnector):
             yield docs_batch
 
     def _story_to_document(self, story: SanadStory) -> Document:
-        """Convert a SanadStory into a RAGFlow Document."""
+        """
+        Convert a SanadStory into a RAGFlow Document.
 
-        # Build an HTML representation of the story.
-        # HTML preserves the original structure and handles RTL Arabic well.
-        html_parts = [
-            '<!DOCTYPE html>',
-            '<html lang="ar" dir="rtl">',
-            '<head><meta charset="utf-8"></head>',
-            '<body>',
-            f'<h1>{_escape_html(story.title)}</h1>',
-        ]
+        Follows the RDBMS connector pattern (rdbms_connector.py line 197-253):
+        - Content fields → structured plain text with 【field】: value delimiters
+        - Metadata fields → Document.metadata dict
+        - Extension → .txt (parsed by TxtParser)
+        """
 
-        # Metadata block
-        meta_items = []
+        # ── Build content blob (vectorized for search) ──────────────
+        # Same delimiter pattern as RDBMS: 【field_name】: value
+        content_parts: list[str] = []
+
+        if story.title:
+            content_parts.append(f"【title】: {story.title}")
+
+        if story.content_text:
+            content_parts.append(f"【content】: {story.content_text}")
+
+        content = "\n".join(content_parts)
+
+        # ── Build metadata dict (for filtering, not vectorized) ─────
+        metadata: dict[str, str] = {}
+
         if story.category:
-            meta_items.append(f"التصنيف: {_escape_html(story.category)}")
+            metadata["category"] = story.category
         if story.country_name:
-            meta_items.append(f"البلد: {_escape_html(story.country_name)}")
+            metadata["country"] = story.country_name
+        if story.country_iso2:
+            metadata["country_iso2"] = story.country_iso2
         if story.source:
-            meta_items.append(f"المصدر: {_escape_html(story.source)}")
+            metadata["source"] = story.source
         if story.media_type:
-            meta_items.append(f"نوع الوسائط: {_escape_html(story.media_type)}")
+            metadata["media_type"] = story.media_type
+        if story.copyright:
+            metadata["copyright"] = story.copyright
         if story.news_types:
-            meta_items.append(f"النوع: {_escape_html(', '.join(story.news_types))}")
-        if story.published:
-            meta_items.append(f"تاريخ النشر: {story.published.isoformat()}")
+            metadata["news_types"] = ", ".join(story.news_types)
 
-        if meta_items:
-            html_parts.append('<div class="metadata">')
-            for item in meta_items:
-                html_parts.append(f"<p>{item}</p>")
-            html_parts.append("</div>")
+        metadata["sanad_id"] = str(story.story_id)
+        metadata["published"] = story.published.isoformat()
 
-        # Story content (already HTML from the API)
-        if story.content:
-            html_parts.append(f'<div class="content">{story.content}</div>')
+        if story.ingested_at:
+            metadata["ingested_at"] = story.ingested_at.isoformat()
 
-        html_parts.extend(["</body>", "</html>"])
-        html_content = "\n".join(html_parts)
-        blob = html_content.encode("utf-8")
+        # ── Build document ──────────────────────────────────────────
+        blob = content.encode("utf-8")
+
+        # Semantic identifier: first content field (title), truncated to 100 chars
+        # Matches RDBMS pattern (line 240-241)
+        semantic_id = (
+            story.title.replace("\n", " ").replace("\r", " ").strip()[:100]
+            if story.title
+            else f"Sanad Story {story.story_id}"
+        )
 
         return Document(
             id=f"sanad:{story.story_id}",
             source=DocumentSource.SANAD,
-            semantic_identifier=story.title or f"Sanad Story {story.story_id}",
-            extension=".html",
+            semantic_identifier=semantic_id,
+            extension=".txt",
             blob=blob,
             doc_updated_at=story.published,
             size_bytes=len(blob),
-            metadata={
-                "category": story.category,
-                "country": story.country_name,
-                "country_iso2": story.country_iso2,
-                "source": story.source,
-                "media_type": story.media_type,
-                "copyright": story.copyright,
-                "news_types": story.news_types,
-                "sanad_id": story.story_id,
-            },
+            metadata=metadata if metadata else None,
         )
-
-
-def _escape_html(text: str) -> str:
-    """Basic HTML escaping for metadata strings."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
 
 
 if __name__ == "__main__":
@@ -404,9 +450,13 @@ if __name__ == "__main__":
     for batch in connector.load_from_state():
         for doc in batch:
             print(f"  {doc.id} | {doc.semantic_identifier[:80]} | {doc.doc_updated_at}")
+            print(f"    metadata: {doc.metadata}")
+            print(f"    content preview: {doc.blob.decode('utf-8')[:200]}")
+            print()
 
     # Test incremental poll (last 24 hours)
     import time as _time
+
     one_day_ago = _time.time() - 24 * 60 * 60
     logger.info("Polling for documents from the last 24 hours")
     for batch in connector.poll_source(one_day_ago):
