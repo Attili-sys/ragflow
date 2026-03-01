@@ -39,6 +39,7 @@ export enum DataSourceKey {
   SEAFILE = 'seafile',
   MYSQL = 'mysql',
   POSTGRESQL = 'postgresql',
+  SANAD = 'sanad',
   //   SHAREPOINT = 'sharepoint',
   //   SLACK = 'slack',
   //   TEAMS = 'teams',
@@ -173,6 +174,11 @@ export const generateDataSourceInfo = (t: TFunction) => {
       name: 'PostgreSQL',
       description: t(`setting.${DataSourceKey.POSTGRESQL}Description`),
       icon: <SvgIcon name={'data-source/postgresql'} width={38} />,
+    },
+    [DataSourceKey.SANAD]: {
+      name: 'Sanad',
+      description: t(`setting.${DataSourceKey.SANAD}Description`),
+      icon: <SvgIcon name={'data-source/sanad'} width={38} />,
     },
   };
 };
@@ -936,6 +942,14 @@ export const DataSourceFormFields = {
       tooltip: t('setting.postgresqlContentColumnsTip'),
     },
   ],
+  [DataSourceKey.SANAD]: [
+    {
+      label: 'API Key',
+      name: 'config.credentials.sanad_api_key',
+      type: FormFieldType.Password,
+      required: true,
+    },
+  ],
 };
 
 export const DataSourceFormDefaultValues = {
@@ -1266,6 +1280,15 @@ export const DataSourceFormDefaultValues = {
       credentials: {
         username: '',
         password: '',
+      },
+    },
+  },
+  [DataSourceKey.SANAD]: {
+    name: '',
+    source: DataSourceKey.SANAD,
+    config: {
+      credentials: {
+        sanad_api_key: '',
       },
     },
   },
