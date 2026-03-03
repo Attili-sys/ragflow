@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 _SANAD_API_BASE = "https://capi.aljazeera.net/internal/sanad/v1/rest/stories-list"
 _MAX_STORIES_PER_PAGE = 20
 _REQUEST_DELAY_SECONDS = 0.5
-_REQUEST_TIMEOUT_SECONDS = 30
+_REQUEST_TIMEOUT_SECONDS = 60  # increased from 30 — the API can be slow
+_MAX_RETRIES = 5
+_RETRY_BACKOFF_BASE = 2  # exponential backoff: 2s, 4s, 8s, 16s, 32s
 _MAX_PAGES_SAFETY = 5000  # safety cap to prevent infinite loops
 
 # Fields whose values go into the document blob (vectorized for RAG search).
@@ -133,16 +135,56 @@ class SanadAPI:
                 "story_per_page": min(stories_per_page, _MAX_STORIES_PER_PAGE),
             }
 
-            try:
-                resp = self.session.get(
-                    _SANAD_API_BASE,
-                    params=params,
-                    timeout=_REQUEST_TIMEOUT_SECONDS,
+            # Retry with exponential backoff for transient errors
+            resp = None
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    resp = self.session.get(
+                        _SANAD_API_BASE,
+                        params=params,
+                        timeout=_REQUEST_TIMEOUT_SECONDS,
+                    )
+                    resp.raise_for_status()
+                    break  # success
+                except (
+                    requests.Timeout,
+                    requests.ConnectionError,
+                    requests.HTTPError,
+                ) as e:
+                    is_server_error = (
+                        isinstance(e, requests.HTTPError)
+                        and e.response is not None
+                        and e.response.status_code < 500
+                    )
+                    if is_server_error:
+                        # Client errors (4xx) are not retryable
+                        logger.error(
+                            f"Sanad API client error on page {page}: {e}"
+                        )
+                        raise
+
+                    wait_time = _RETRY_BACKOFF_BASE ** (attempt + 1)
+                    logger.warning(
+                        f"Sanad API request failed on page {page} "
+                        f"(attempt {attempt + 1}/{_MAX_RETRIES}): {e}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                except requests.RequestException as e:
+                    logger.error(
+                        f"Sanad API unexpected error on page {page}: {e}"
+                    )
+                    raise
+            else:
+                # All retries exhausted
+                logger.error(
+                    f"Sanad API request failed on page {page} after "
+                    f"{_MAX_RETRIES} retries. Stopping pagination."
                 )
-                resp.raise_for_status()
-            except requests.RequestException as e:
-                logger.error(f"Sanad API request failed on page {page}: {e}")
-                raise
+                break  # stop gracefully instead of crashing
+
+            if resp is None:
+                break
 
             data = resp.json()
 
