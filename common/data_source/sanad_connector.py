@@ -425,12 +425,12 @@ class SanadConnector(LoadConnector, PollConnector):
         content_parts: list[str] = []
 
         if story.title:
-            content_parts.append(f"【title】: {story.title}")
+            content_parts.append(story.title)
 
         if story.content_text:
-            content_parts.append(f"【content】: {story.content_text}")
+            content_parts.append(story.content_text)
 
-        content = "\n".join(content_parts)
+        content = "\n\n".join(content_parts)
 
         # ── Build metadata dict (for filtering, not vectorized) ─────
         metadata: dict[str, str] = {}
