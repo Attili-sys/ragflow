@@ -37,7 +37,7 @@ _REQUEST_DELAY_SECONDS = 0.5
 _REQUEST_TIMEOUT_SECONDS = 60  # increased from 30 — the API can be slow
 _MAX_RETRIES = 5
 _RETRY_BACKOFF_BASE = 2  # exponential backoff: 2s, 4s, 8s, 16s, 32s
-_MAX_PAGES_SAFETY = 5000  # safety cap to prevent infinite loops
+_MAX_PAGES_SAFETY = 10  # safety cap to prevent infinite loops
 
 # Fields whose values go into the document blob (vectorized for RAG search).
 # Order matters — title first for semantic_identifier extraction.
