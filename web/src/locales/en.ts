@@ -1110,6 +1110,8 @@ Example: Virtual Hosted Style`,
         'Optional password for Jira Server/Data Center environments.',
       mysqlDescription:
         'Connect to MySQL database to sync data from tables using SQL queries.',
+      sanadDescription:
+          'Sync Arabic news stories from Al Jazeera Sanad API',
       mysqlQueryTip:
         'SQL query to extract data from your database (e.g., SELECT * FROM products WHERE status = "active").',
       mysqlContentColumnsTip:
