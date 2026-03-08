@@ -139,6 +139,7 @@ class FileSource(StrEnum):
     MYSQL = "mysql"
     POSTGRESQL = "postgresql"
     SANAD = "sanad"
+    DINGTALK_AI_TABLE = "dingtalk_ai_table"
 
 
 class PipelineTaskType(StrEnum):
