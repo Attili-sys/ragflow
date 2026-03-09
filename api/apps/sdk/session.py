@@ -739,14 +739,18 @@ async def delete(tenant_id, chat_id):
     errors = []
     success_count = 0
     req = await get_request_json()
+    convs = ConversationService.query(dialog_id=chat_id)
     if not req:
-        return get_result()
+        ids = None
+    else:
+        ids = req.get("ids")
 
-    ids = req.get("ids")
     if not ids:
-        return get_result()
-
-    conv_list = ids
+        conv_list = []
+        for conv in convs:
+            conv_list.append(conv.id)
+    else:
+        conv_list = ids
 
     unique_conv_ids, duplicate_messages = check_duplicate_ids(conv_list, "session")
     conv_list = unique_conv_ids
@@ -787,14 +791,21 @@ async def delete_agent_session(tenant_id, agent_id):
     if not cvs:
         return get_error_data_result(f"You don't own the agent {agent_id}")
 
+    convs = API4ConversationService.query(dialog_id=agent_id)
+    if not convs:
+        return get_error_data_result(f"Agent {agent_id} has no sessions")
+
     if not req:
-        return get_result()
+        ids = None
+    else:
+        ids = req.get("ids")
 
-    ids = req.get("ids")
     if not ids:
-        return get_result()
-
-    conv_list = ids
+        conv_list = []
+        for conv in convs:
+            conv_list.append(conv.id)
+    else:
+        conv_list = ids
 
     unique_conv_ids, duplicate_messages = check_duplicate_ids(conv_list, "session")
     conv_list = unique_conv_ids
