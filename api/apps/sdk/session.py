@@ -739,7 +739,6 @@ async def delete(tenant_id, chat_id):
     errors = []
     success_count = 0
     req = await get_request_json()
-    convs = ConversationService.query(dialog_id=chat_id)
     if not req:
         ids = None
     else:
