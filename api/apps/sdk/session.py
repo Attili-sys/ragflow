@@ -746,11 +746,9 @@ async def delete(tenant_id, chat_id):
         ids = req.get("ids")
 
     if not ids:
-        conv_list = []
-        for conv in convs:
-            conv_list.append(conv.id)
-    else:
-        conv_list = ids
+        return get_json_result(data=[])
+    
+    conv_list = ids
 
     unique_conv_ids, duplicate_messages = check_duplicate_ids(conv_list, "session")
     conv_list = unique_conv_ids
@@ -801,11 +799,9 @@ async def delete_agent_session(tenant_id, agent_id):
         ids = req.get("ids")
 
     if not ids:
-        conv_list = []
-        for conv in convs:
-            conv_list.append(conv.id)
-    else:
-        conv_list = ids
+        return get_json_result(data=[])
+    
+    conv_list = ids
 
     unique_conv_ids, duplicate_messages = check_duplicate_ids(conv_list, "session")
     conv_list = unique_conv_ids

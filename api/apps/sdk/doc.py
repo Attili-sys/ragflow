@@ -807,12 +807,9 @@ async def delete(tenant_id, dataset_id):
     else:
         doc_ids = req.get("ids")
     if not doc_ids:
-        doc_list = []
-        docs = DocumentService.query(kb_id=dataset_id)
-        for doc in docs:
-            doc_list.append(doc.id)
-    else:
-        doc_list = doc_ids
+        return get_json_result(data={"docs": []})
+    
+    doc_list = doc_ids
 
     unique_doc_ids, duplicate_messages = check_duplicate_ids(doc_list, "document")
     doc_list = unique_doc_ids
