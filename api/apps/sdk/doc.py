@@ -1393,13 +1393,16 @@ async def rm_chunk(tenant_id, dataset_id, document_id):
     if not docs:
         raise LookupError(f"Can't find the document with ID {document_id}!")
     req = await get_request_json()
-    condition = {"doc_id": document_id}
+    unique_chunk_ids = []
+    duplicate_messages = []
     if "chunk_ids" in req:
         unique_chunk_ids, duplicate_messages = check_duplicate_ids(req["chunk_ids"], "chunk")
-        condition["id"] = unique_chunk_ids
-    else:
-        unique_chunk_ids = []
-        duplicate_messages = []
+    if not unique_chunk_ids:
+        if duplicate_messages:
+            return get_error_data_result(message=";".join(duplicate_messages))
+        return get_result(message="deleted 0 chunks")
+
+    condition = {"doc_id": document_id, "id": unique_chunk_ids}
     chunk_number = settings.docStoreConn.delete(condition, search.index_name(tenant_id), dataset_id)
     if chunk_number != 0:
         DocumentService.decrement_chunk_num(document_id, dataset_id, 1, chunk_number, 0)

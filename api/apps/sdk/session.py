@@ -788,10 +788,6 @@ async def delete_agent_session(tenant_id, agent_id):
     if not cvs:
         return get_error_data_result(f"You don't own the agent {agent_id}")
 
-    convs = API4ConversationService.query(dialog_id=agent_id)
-    if not convs:
-        return get_error_data_result(f"Agent {agent_id} has no sessions")
-
     if not req:
         ids = None
     else:
@@ -799,6 +795,10 @@ async def delete_agent_session(tenant_id, agent_id):
 
     if not ids:
         return get_json_result(data=[])
+
+    convs = API4ConversationService.query(dialog_id=agent_id)
+    if not convs:
+        return get_error_data_result(f"Agent {agent_id} has no sessions")
     
     conv_list = ids
 
