@@ -96,8 +96,8 @@ class DataSet(Base):
         raise Exception(res["message"])
 
     def delete_documents(self, ids: list[str] | None = None):
-        # Handle empty ID list as no-op (per commit 51be1f144 behavior)
-        if ids is not None and len(ids) == 0:
+        # Handle None or empty ID list as no-op
+        if not ids:
             return
         res = self.rm(f"/datasets/{self.id}/documents", {"ids": ids})
         res = res.json()
