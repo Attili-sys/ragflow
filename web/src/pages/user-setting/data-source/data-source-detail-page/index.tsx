@@ -19,6 +19,9 @@ import {
   DataSourceFormDefaultValues,
   DataSourceFormFields,
   DataSourceKey,
+  getCommonExtraDefaultValues,
+  getCommonExtraFields,
+  mergeDataSourceFormValues,
   useDataSourceInfo,
 } from '../constant';
 import {
@@ -169,6 +172,7 @@ const SourceDetailPage = () => {
         ...DataSourceFormFields[
           detail.source as keyof typeof DataSourceFormFields
         ],
+        ...getCommonExtraFields(detail.source),
         ...customFields,
       ] as FormFieldConfig[];
 
@@ -182,10 +186,13 @@ const SourceDetailPage = () => {
       setFields(newFields);
 
       const defaultValueTemp = {
-        ...(DataSourceFormDefaultValues[
-          detail?.source as keyof typeof DataSourceFormDefaultValues
-        ] as FieldValues),
-        ...detail,
+        ...mergeDataSourceFormValues(
+          DataSourceFormDefaultValues[
+            detail?.source as keyof typeof DataSourceFormDefaultValues
+          ] as FieldValues,
+          getCommonExtraDefaultValues(),
+          detail as FieldValues,
+        ),
       };
       console.log('defaultValue', defaultValueTemp);
       setDefaultValues(defaultValueTemp);
