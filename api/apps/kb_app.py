@@ -475,14 +475,19 @@ def get_meta():
 @login_required
 def get_meta_keys():
     kb_ids = [kb_id.strip() for kb_id in request.args.get("kb_ids", "").split(",") if kb_id.strip()]
+    logging.info(f"User {current_user.id} fetching meta keys for kbs: {kb_ids}")
     for kb_id in kb_ids:
         if not KnowledgebaseService.accessible(kb_id, current_user.id):
+            logging.warning(f"User {current_user.id} unauthorized to access kb: {kb_id}")
             return get_json_result(
                 data=False,
                 message='No authorization.',
                 code=RetCode.AUTHENTICATION_ERROR
             )
-    return get_json_result(data=DocMetadataService.get_metadata_keys_by_kbs(kb_ids))
+    
+    keys = DocMetadataService.get_metadata_keys_by_kbs(kb_ids)
+    logging.info(f"Successfully fetched {len(keys)} meta keys for kbs: {kb_ids}")
+    return get_json_result(data=keys)
 
 
 @manager.route("/basic_info", methods=["GET"])  # noqa: F821

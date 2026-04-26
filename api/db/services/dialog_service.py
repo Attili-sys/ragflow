@@ -53,8 +53,8 @@ from common.string_utils import remove_redundant_spaces
 from common import settings
 
 
-def _resolve_reference_metadata(config):
-    return resolve_reference_metadata_preferences({}, config)
+def _resolve_reference_metadata(config, request_payload=None):
+    return resolve_reference_metadata_preferences(request_payload or {}, config)
 
 
 def _enrich_chunks_with_document_metadata(chunks, metadata_fields=None):
@@ -559,7 +559,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
         attachments_ = "\n\n".join(text_attachments)
 
     prompt_config = dialog.prompt_config
-    include_reference_metadata, metadata_fields = _resolve_reference_metadata(prompt_config)
+    include_reference_metadata, metadata_fields = _resolve_reference_metadata(prompt_config, request_payload=kwargs)
     field_map = KnowledgebaseService.get_field_map(dialog.kb_ids)
     logging.debug(f"field_map retrieved: {field_map}")
     # try to use sql if field mapping is good to go

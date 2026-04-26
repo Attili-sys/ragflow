@@ -22,6 +22,7 @@ from api.db.joint_services.tenant_model_service import get_model_config_by_id, g
 from api.db.services.doc_metadata_service import DocMetadataService
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
+import logging
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.llm_service import LLMBundle
 from api.db.services.task_service import TaskService, cancel_all_task_of, queue_tasks
@@ -30,13 +31,11 @@ from api.utils.api_utils import (
     check_duplicate_ids,
     construct_json_result,
     get_error_data_result,
-    get_parser_config,
     get_request_json,
     get_result,
     server_error_response,
     token_required,
 )
-from api.utils.image_utils import store_chunk_image
 from api.utils.reference_metadata_utils import (
     enrich_chunks_with_document_metadata,
     resolve_reference_metadata_preferences,
@@ -522,7 +521,6 @@ async def retrieval_test(tenant_id):
             c.pop("vector", None)
 
         if include_metadata:
-            import logging
             logging.info(
                 "sdk.retrieval reference_metadata enabled dataset_ids=%s fields=%s chunks=%s",
                 kb_ids,

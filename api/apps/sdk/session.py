@@ -1067,6 +1067,7 @@ async def tts(tenant_id):
 def _build_reference_chunks(reference, include_metadata=False, metadata_fields=None):
     chunks = chunks_format(reference)
     if not include_metadata:
+        logging.info("Skipping document metadata enrichment (include_metadata=False)")
         return chunks
 
     normalized_fields = None
@@ -1074,6 +1075,15 @@ def _build_reference_chunks(reference, include_metadata=False, metadata_fields=N
         if not isinstance(metadata_fields, list):
             return chunks
         normalized_fields = {f for f in metadata_fields if isinstance(f, str)}
+        if not normalized_fields:
+            normalized_fields = None
+
+    logging.info(
+        "Enriching %d chunks with document metadata (fields: %s)",
+        len(chunks),
+        "ALL" if normalized_fields is None else list(normalized_fields),
+    )
+
     enrich_chunks_with_document_metadata(
         chunks,
         normalized_fields,
