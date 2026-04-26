@@ -486,7 +486,7 @@ def get_meta_keys():
                 message='No authorization.',
                 code=RetCode.AUTHENTICATION_ERROR
             )
-    
+
     keys = DocMetadataService.get_metadata_keys_by_kbs(kb_ids)
     logging.info(f"Successfully fetched {len(keys)} meta keys for kbs: {kb_ids}")
     return get_json_result(data=keys)
