@@ -53,7 +53,7 @@ from common.string_utils import remove_redundant_spaces
 from common import settings
 
 
-def _resolve_reference_metadata(config, request_payload=None):
+def _resolve_reference_metadata(request_payload=None, config=None):
     return resolve_reference_metadata_preferences(request_payload or {}, config)
 
 
@@ -559,7 +559,7 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
         attachments_ = "\n\n".join(text_attachments)
 
     prompt_config = dialog.prompt_config
-    include_reference_metadata, metadata_fields = _resolve_reference_metadata(prompt_config, request_payload=kwargs)
+    include_reference_metadata, metadata_fields = _resolve_reference_metadata(request_payload=kwargs, config=prompt_config)
     field_map = KnowledgebaseService.get_field_map(dialog.kb_ids)
     logging.debug(f"field_map retrieved: {field_map}")
     # try to use sql if field mapping is good to go
@@ -573,6 +573,8 @@ async def async_chat(dialog, messages, stream=True, **kwargs):
                 if kb_id:
                     for c in ans["reference"]["chunks"]:
                         c["kb_id"] = kb_id
+                elif len(dialog.kb_ids) != 1 and ans["reference"]["chunks"]:
+                    logging.warning(f"Multiple (or zero) kb_ids ({len(dialog.kb_ids)}) with SQL retrieval chunks; chunk enrichment may lack kb_id.")
                 _enrich_chunks_with_document_metadata(ans["reference"]["chunks"], metadata_fields)
             yield ans
             return
@@ -1436,7 +1438,7 @@ async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_conf
     chat_llm_name = search_config.get("chat_id", chat_llm_name)
     rerank_id = search_config.get("rerank_id", "")
     meta_data_filter = search_config.get("meta_data_filter")
-    include_reference_metadata, metadata_fields = _resolve_reference_metadata(search_config)
+    include_reference_metadata, metadata_fields = _resolve_reference_metadata(config=search_config)
 
     kbs = KnowledgebaseService.get_by_ids(kb_ids)
     embedding_list = list(set([kb.embd_id for kb in kbs]))

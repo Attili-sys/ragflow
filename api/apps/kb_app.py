@@ -475,6 +475,8 @@ def get_meta():
 @login_required
 def get_meta_keys():
     kb_ids = [kb_id.strip() for kb_id in request.args.get("kb_ids", "").split(",") if kb_id.strip()]
+    if not kb_ids:
+        return get_json_result(data=False, message='Missing kb_ids.', code=RetCode.ARGUMENT_ERROR)
     logging.info(f"User {current_user.id} fetching meta keys for kbs: {kb_ids}")
     for kb_id in kb_ids:
         if not KnowledgebaseService.accessible(kb_id, current_user.id):

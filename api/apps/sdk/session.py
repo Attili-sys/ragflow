@@ -239,11 +239,18 @@ async def chat_completion_openai_like(tenant_id, chat_id):
         return get_error_data_result("extra_body must be an object.")
 
     need_reference = bool(extra_body.get("reference", False))
-    reference_metadata = extra_body.get("reference_metadata") or {}
-    if reference_metadata and not isinstance(reference_metadata, dict):
+    
+    # Extract reference metadata and legacy keys to pass down
+    reference_metadata_val = extra_body.get("reference_metadata")
+    if reference_metadata_val is not None and not isinstance(reference_metadata_val, dict):
         return get_error_data_result("reference_metadata must be an object.")
-    include_reference_metadata = bool(reference_metadata.get("include", False))
-    metadata_fields = reference_metadata.get("fields")
+    
+    legacy_include = extra_body.get("include_metadata")
+    legacy_fields = extra_body.get("metadata_fields")
+
+    reference_metadata = reference_metadata_val or {}
+    include_reference_metadata = bool(reference_metadata.get("include", False)) or bool(legacy_include)
+    metadata_fields = reference_metadata.get("fields") or legacy_fields
     if metadata_fields is not None and not isinstance(metadata_fields, list):
         return get_error_data_result("reference_metadata.fields must be an array.")
 
@@ -329,7 +336,18 @@ async def chat_completion_openai_like(tenant_id, chat_id):
             }
 
             try:
-                chat_kwargs = {"toolcall_session": toolcall_session, "tools": tools, "quote": need_reference}
+                chat_kwargs = {
+                    "toolcall_session": toolcall_session,
+                    "tools": tools,
+                    "quote": need_reference,
+                }
+                if reference_metadata_val is not None:
+                    chat_kwargs["reference_metadata"] = reference_metadata_val
+                if legacy_include is not None:
+                    chat_kwargs["include_metadata"] = legacy_include
+                if legacy_fields is not None:
+                    chat_kwargs["metadata_fields"] = legacy_fields
+
                 if doc_ids_str:
                     chat_kwargs["doc_ids"] = doc_ids_str
                 async for ans in async_chat(dia, msg, True, **chat_kwargs):
@@ -391,7 +409,18 @@ async def chat_completion_openai_like(tenant_id, chat_id):
         return resp
     else:
         answer = None
-        chat_kwargs = {"toolcall_session": toolcall_session, "tools": tools, "quote": need_reference}
+        chat_kwargs = {
+            "toolcall_session": toolcall_session,
+            "tools": tools,
+            "quote": need_reference,
+        }
+        if reference_metadata_val is not None:
+            chat_kwargs["reference_metadata"] = reference_metadata_val
+        if legacy_include is not None:
+            chat_kwargs["include_metadata"] = legacy_include
+        if legacy_fields is not None:
+            chat_kwargs["metadata_fields"] = legacy_fields
+
         if doc_ids_str:
             chat_kwargs["doc_ids"] = doc_ids_str
         async for ans in async_chat(dia, msg, False, **chat_kwargs):
