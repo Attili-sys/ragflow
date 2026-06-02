@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 from datetime import date, datetime, time, timezone
+from decimal import Decimal
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from common.data_source.config import DocumentSource, INDEX_BATCH_SIZE
@@ -123,10 +124,14 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
         self.metadata_columns = [c.strip() for c in (metadata_columns or "").split(",") if c.strip()]
         self.id_column = id_column.strip() if id_column else None
         self.timestamp_column = timestamp_column.strip() if timestamp_column else None
-        self.batch_size = batch_size
-        self.page_size = page_size
-        self.maximum_bytes_billed = maximum_bytes_billed
-        self.job_timeout_ms = job_timeout_ms
+        self.batch_size = self._coerce_positive_int("batch_size", batch_size)
+        self.page_size = self._coerce_positive_int("page_size", page_size)
+        self.maximum_bytes_billed = self._coerce_optional_positive_int(
+            "maximum_bytes_billed", maximum_bytes_billed
+        )
+        self.job_timeout_ms = self._coerce_optional_positive_int(
+            "job_timeout_ms", job_timeout_ms
+        )
         self.use_query_cache = use_query_cache
 
         self._client = None
@@ -135,6 +140,61 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
         self._sync_connector_id: str | None = None
         self._sync_config: Dict[str, Any] | None = None
         self._pending_sync_cursor_value: Any = None
+
+    @staticmethod
+    def _coerce_positive_int(name: str, value: Any) -> int:
+        if isinstance(value, bool):
+            raise ConnectorValidationError(f"BigQuery {name} must be a positive integer.")
+        try:
+            integer = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ConnectorValidationError(
+                f"BigQuery {name} must be a positive integer."
+            ) from exc
+        if integer <= 0:
+            raise ConnectorValidationError(f"BigQuery {name} must be a positive integer.")
+        return integer
+
+    @classmethod
+    def _coerce_optional_positive_int(cls, name: str, value: Any) -> Optional[int]:
+        if value is None or value == "":
+            return None
+        return cls._coerce_positive_int(name, value)
+
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]):
+        """Build a connector from the persisted connector config."""
+        config = config or {}
+        raw_batch_size = config.get("batch_size")
+        if raw_batch_size in (None, ""):
+            raw_batch_size = INDEX_BATCH_SIZE
+
+        kwargs = {
+            "project_id": config.get("project_id", ""),
+            "dataset_id": config.get("dataset_id") or None,
+            "table_id": config.get("table_id") or None,
+            "location": config.get("location") or None,
+            "query": config.get("query", ""),
+            "content_columns": config.get("content_columns", ""),
+            "metadata_columns": config.get("metadata_columns", ""),
+            "id_column": config.get("id_column") or None,
+            "timestamp_column": config.get("timestamp_column") or None,
+            "batch_size": cls._coerce_positive_int("batch_size", raw_batch_size),
+            "use_query_cache": config.get("use_query_cache", True),
+        }
+        if config.get("page_size") not in (None, ""):
+            kwargs["page_size"] = cls._coerce_positive_int(
+                "page_size", config.get("page_size")
+            )
+        if config.get("maximum_bytes_billed") not in (None, ""):
+            kwargs["maximum_bytes_billed"] = cls._coerce_positive_int(
+                "maximum_bytes_billed", config.get("maximum_bytes_billed")
+            )
+        if config.get("job_timeout_ms") not in (None, ""):
+            kwargs["job_timeout_ms"] = cls._coerce_positive_int(
+                "job_timeout_ms", config.get("job_timeout_ms")
+            )
+        return cls(**kwargs)
 
     # ------------------------------------------------------------------ #
     # Credentials & client
@@ -222,9 +282,9 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
         config = bigquery.QueryJobConfig()
         config.use_legacy_sql = False
         config.use_query_cache = self.use_query_cache
-        if self.maximum_bytes_billed:
+        if self.maximum_bytes_billed is not None:
             config.maximum_bytes_billed = int(self.maximum_bytes_billed)
-        if self.job_timeout_ms:
+        if self.job_timeout_ms is not None:
             config.job_timeout_ms = int(self.job_timeout_ms)
         if query_parameters:
             config.query_parameters = query_parameters
@@ -252,24 +312,33 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
             )
             schema = job.schema or []
 
+        field = self._get_schema_field(schema, self.timestamp_column)
+        return field.field_type
+
+    @staticmethod
+    def _get_schema_field(schema: List[Any], column: Optional[str]):
         for field in schema:
-            if field.name == self.timestamp_column:
-                return field.field_type
+            if field.name == column:
+                return field
         raise ConnectorValidationError(
-            f"BigQuery timestamp column '{self.timestamp_column}' was not found in the schema."
+            f"BigQuery column '{column}' was not found in the query schema."
         )
 
-    def _resolve_cursor_param_type(self) -> str:
-        if self._cursor_param_type is not None:
-            return self._cursor_param_type
-        field_type = (self._get_cursor_column_field_type() or "").upper()
-        param_type = _CURSOR_PARAM_TYPE_MAP.get(field_type)
+    def _resolve_cursor_param_type_from_field_type(self, field_type: str) -> str:
+        param_type = _CURSOR_PARAM_TYPE_MAP.get((field_type or "").upper())
         if param_type is None:
             raise ConnectorValidationError(
                 f"BigQuery timestamp column type '{field_type}' is not supported as a cursor."
             )
         self._cursor_param_type = param_type
         return param_type
+
+    def _resolve_cursor_param_type(self) -> str:
+        if self._cursor_param_type is not None:
+            return self._cursor_param_type
+        return self._resolve_cursor_param_type_from_field_type(
+            self._get_cursor_column_field_type()
+        )
 
     def _make_cursor_param(self, name: str, value: Any, param_type: str):
         return bigquery.ScalarQueryParameter(name, param_type, value)
@@ -314,12 +383,16 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
     # ------------------------------------------------------------------ #
     @staticmethod
     def serialize_cursor_value(value: Any) -> Any:
-        # Connector config is JSON, so datetime/date must be wrapped. Other
-        # scalar cursors (int/float/str) round-trip natively.
+        # Connector config is JSON, so non-JSON-native cursor values must be
+        # wrapped. Other scalar cursors (int/float/str) round-trip natively.
         if isinstance(value, datetime):
             return {_CURSOR_TYPE_KEY: "datetime", "value": value.isoformat()}
         if isinstance(value, date):
             return {_CURSOR_TYPE_KEY: "date", "value": value.isoformat()}
+        if isinstance(value, time):
+            return {_CURSOR_TYPE_KEY: "time", "value": value.isoformat()}
+        if isinstance(value, Decimal):
+            return {_CURSOR_TYPE_KEY: "decimal", "value": str(value)}
         return value
 
     @staticmethod
@@ -330,6 +403,10 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
                 return datetime.fromisoformat(value["value"])
             if kind == "date":
                 return date.fromisoformat(value["value"])
+            if kind == "time":
+                return time.fromisoformat(value["value"])
+            if kind == "decimal":
+                return Decimal(value["value"])
         return value
 
     # ------------------------------------------------------------------ #
@@ -448,8 +525,9 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
                     yield batch
                     batch = []
             except Exception as exc:
-                logging.warning("Error converting BigQuery row to document: %s", exc)
-                continue
+                raise ConnectorValidationError(
+                    f"Failed to convert BigQuery row into a document: {exc}"
+                ) from exc
 
         if batch:
             yield batch
@@ -610,6 +688,7 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
                 job_config=self._build_query_job_config(dry_run=True),
                 location=self.location or None,
             )
+            self._validate_query_schema(dry_run_job.schema or [])
             estimated_bytes = getattr(dry_run_job, "total_bytes_processed", None)
             if estimated_bytes is not None:
                 logging.info(
@@ -619,3 +698,17 @@ class BigQueryConnector(LoadConnector, PollConnector, SlimConnectorWithPermSync)
             raise
         except Exception as exc:
             raise ConnectorValidationError(f"BigQuery validation failed: {exc}")
+
+    def _validate_query_schema(self, schema: List[Any]) -> None:
+        if not schema:
+            raise ConnectorValidationError("BigQuery query dry-run returned no schema.")
+
+        for column in self.content_columns:
+            self._get_schema_field(schema, column)
+        for column in self.metadata_columns:
+            self._get_schema_field(schema, column)
+        if self.id_column:
+            self._get_schema_field(schema, self.id_column)
+        if self.timestamp_column:
+            field = self._get_schema_field(schema, self.timestamp_column)
+            self._resolve_cursor_param_type_from_field_type(field.field_type)

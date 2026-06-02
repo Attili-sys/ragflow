@@ -491,6 +491,25 @@ class _FakeBigQueryConnector:
         self._pending_sync_cursor_value = None
         _FakeBigQueryConnector.instance = self
 
+    @classmethod
+    def from_config(cls, config):
+        return cls(
+            project_id=config.get("project_id", ""),
+            dataset_id=config.get("dataset_id") or None,
+            table_id=config.get("table_id") or None,
+            location=config.get("location") or None,
+            query=config.get("query", ""),
+            content_columns=config.get("content_columns", ""),
+            metadata_columns=config.get("metadata_columns", ""),
+            id_column=config.get("id_column") or None,
+            timestamp_column=config.get("timestamp_column") or None,
+            batch_size=config.get("batch_size", 2),
+            page_size=config.get("page_size", 1000),
+            maximum_bytes_billed=config.get("maximum_bytes_billed"),
+            job_timeout_ms=config.get("job_timeout_ms"),
+            use_query_cache=config.get("use_query_cache", True),
+        )
+
     def load_credentials(self, credentials):
         self.credentials = credentials
 
