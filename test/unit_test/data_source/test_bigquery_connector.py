@@ -304,6 +304,8 @@ def test_batches_accumulate_to_batch_size():
 def test_cursor_serialize_deserialize_roundtrip():
     dt = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     d = date(2026, 1, 1)
+    t = time(3, 4, 5)
+    dec = Decimal("123.45")
 
     assert BigQueryConnector.deserialize_cursor_value(
         BigQueryConnector.serialize_cursor_value(dt)
@@ -311,6 +313,12 @@ def test_cursor_serialize_deserialize_roundtrip():
     assert BigQueryConnector.deserialize_cursor_value(
         BigQueryConnector.serialize_cursor_value(d)
     ) == d
+    assert BigQueryConnector.deserialize_cursor_value(
+        BigQueryConnector.serialize_cursor_value(t)
+    ) == t
+    assert BigQueryConnector.deserialize_cursor_value(
+        BigQueryConnector.serialize_cursor_value(dec)
+    ) == dec
     assert BigQueryConnector.serialize_cursor_value(42) == 42
     assert BigQueryConnector.deserialize_cursor_value(42) == 42
 
@@ -347,6 +355,26 @@ def test_slim_docs_use_id_column():
 
 
 @pytest.mark.p2
+def test_row_conversion_failure_raises_instead_of_skipping(monkeypatch):
+    client = _FakeClient(rows=[{"id": 1, "name": "n", "description": "d", "status": "s"}])
+    connector = _make_connector(client=client)
+    monkeypatch.setattr(
+        connector,
+        "_row_to_document",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad row")),
+    )
+
+    with pytest.raises(ConnectorValidationError, match="Failed to convert BigQuery row"):
+        list(connector.load_from_state())
+
+
+@pytest.mark.p2
+def test_zero_maximum_bytes_billed_is_rejected():
+    with pytest.raises(ConnectorValidationError, match="maximum_bytes_billed"):
+        _make_connector(maximum_bytes_billed=0)
+
+
+@pytest.mark.p2
 def test_validation_requires_content_columns():
     connector = _make_connector(content_columns="")
     with pytest.raises(ConnectorValidationError):
@@ -368,4 +396,36 @@ def test_validation_dry_run_failure_becomes_validation_error():
 
     connector = _make_connector(client=_FailingClient())
     with pytest.raises(ConnectorValidationError):
+        connector.validate_connector_settings()
+
+
+@pytest.mark.p2
+def test_validation_checks_configured_columns_and_cursor_type():
+    schema = [
+        _FakeSchemaField("id", "INTEGER"),
+        _FakeSchemaField("name", "STRING"),
+        _FakeSchemaField("status", "STRING"),
+        _FakeSchemaField("updated_at", "TIMESTAMP"),
+    ]
+    connector = _make_connector(
+        client=_FakeClient(result_schema=schema),
+        content_columns="name",
+        metadata_columns="status",
+        timestamp_column="updated_at",
+    )
+
+    connector.validate_connector_settings()
+    assert connector._cursor_param_type == "TIMESTAMP"
+
+
+@pytest.mark.p2
+def test_validation_rejects_missing_configured_column():
+    schema = [_FakeSchemaField("id", "INTEGER"), _FakeSchemaField("name", "STRING")]
+    connector = _make_connector(
+        client=_FakeClient(result_schema=schema),
+        content_columns="name",
+        id_column="missing_id",
+    )
+
+    with pytest.raises(ConnectorValidationError, match="missing_id"):
         connector.validate_connector_settings()

@@ -2081,35 +2081,7 @@ class BigQuery(_CursorPersistingSyncBase):
         return "[BigQuery]"
 
     async def _generate(self, task: dict):
-        raw_batch_size = self.conf.get("batch_size", INDEX_BATCH_SIZE)
-        try:
-            batch_size = int(raw_batch_size)
-        except (TypeError, ValueError):
-            batch_size = INDEX_BATCH_SIZE
-        if batch_size <= 0:
-            batch_size = INDEX_BATCH_SIZE
-
-        connector_kwargs = {
-            "project_id": self.conf.get("project_id", ""),
-            "dataset_id": self.conf.get("dataset_id") or None,
-            "table_id": self.conf.get("table_id") or None,
-            "location": self.conf.get("location") or None,
-            "query": self.conf.get("query", ""),
-            "content_columns": self.conf.get("content_columns", ""),
-            "metadata_columns": self.conf.get("metadata_columns", ""),
-            "id_column": self.conf.get("id_column") or None,
-            "timestamp_column": self.conf.get("timestamp_column") or None,
-            "batch_size": batch_size,
-            "use_query_cache": self.conf.get("use_query_cache", True),
-        }
-        if self.conf.get("page_size") is not None:
-            connector_kwargs["page_size"] = int(self.conf["page_size"])
-        if self.conf.get("maximum_bytes_billed") is not None:
-            connector_kwargs["maximum_bytes_billed"] = int(self.conf["maximum_bytes_billed"])
-        if self.conf.get("job_timeout_ms") is not None:
-            connector_kwargs["job_timeout_ms"] = int(self.conf["job_timeout_ms"])
-
-        self.connector = BigQueryConnector(**connector_kwargs)
+        self.connector = BigQueryConnector.from_config(self.conf)
 
         credentials = self.conf.get("credentials")
         if not credentials:
